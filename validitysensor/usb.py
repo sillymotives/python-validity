@@ -36,6 +36,21 @@ class Usb:
         self.trace_enabled = False
         self.dev: typing.Optional[ucore.Device] = None
         self.cancel = False
+        self.identity = None
+
+    @staticmethod
+    def device_identity(dev: ucore.Device):
+        try:
+            bus = dev.bus
+        except Exception:
+            bus = None
+
+        try:
+            ports = tuple(dev.port_numbers or ())
+        except Exception:
+            ports = ()
+
+        return dev.idVendor, dev.idProduct, bus, ports
 
     def open(self, vendor=None, product=None):
         if vendor is not None and product is not None:
@@ -57,11 +72,43 @@ class Usb:
 
         self.open_dev(dev)
 
+    def reopen(self):
+        if self.identity is None:
+            self.open()
+            return
+
+        vendor, product, bus, ports = self.identity
+
+        def match(d):
+            if d.idVendor != vendor or d.idProduct != product:
+                return False
+
+            if bus is not None and d.bus != bus:
+                return False
+
+            if ports:
+                try:
+                    if tuple(d.port_numbers or ()) != ports:
+                        return False
+                except Exception:
+                    return False
+
+            return True
+
+        dev = ucore.find(custom_match=match)
+
+        if dev is None:
+            logging.warning('Could not reacquire fingerprint sensor by USB topology; falling back to VID/PID')
+            dev = ucore.find(idVendor=vendor, idProduct=product)
+
+        self.open_dev(dev)
+
     def open_dev(self, dev: ucore.Device):
         if dev is None:
             raise Exception('No matching devices found')
 
         self.dev = dev
+        self.identity = self.device_identity(dev)
         self.dev.default_timeout = 15000
 
     def close(self):
