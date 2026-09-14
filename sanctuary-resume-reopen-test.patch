@@ -1,0 +1,39 @@
+From da5ff31e0aa049dc6c36eb4b6fb34634b1dc30e7 Mon Sep 17 00:00:00 2001
+Subject: [TEST PATCH] dbus: reacquire USB device on Resume
+
+Sanctuary reproduces an S4 failure where the sensor re-enumerates after
+hibernate but python-validity retains the pre-hibernate PyUSB device handle.
+The existing Resume method calls init.open_common(), which assumes usb.dev
+already refers to a usable device. After S4, operations through that object
+fail with USBError ENODEV.
+
+For the default single-device path, call init.open() instead. This runs
+usb.open() before open_common() and therefore reacquires the re-enumerated
+sensor.
+
+This test patch deliberately does not claim correct --devpath behaviour yet.
+That path needs separate treatment because USB bus/address may change across
+re-enumeration.
+---
+ dbus_service/dbus-service | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/dbus_service/dbus-service b/dbus_service/dbus-service
+index 1c63e8d..0000000 100755
+--- a/dbus_service/dbus-service
++++ b/dbus_service/dbus-service
+@@ -70,9 +70,9 @@ class Device(dbus.service.Object):
+     def Resume(self):
+         logging.debug('In Resume')
+         tls.reset()
+         try:
+-            init.open_common()
++            init.open()
+         except:
+-            init.open_common()
++            init.open()
+ 
+     @dbus.service.method(dbus_interface=INTERFACE_NAME, in_signature="s", out_signature="as")
+     def ListEnrolledFingers(self, user):
+-- 
+2.47.2
